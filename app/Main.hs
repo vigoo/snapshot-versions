@@ -5,6 +5,7 @@ module Main where
 import           Control.Monad
 import qualified Data.Map                  as Map
 import           Data.Monoid
+import qualified Data.Set                  as Set
 import           SnapshotVersions.Cabal
 import           SnapshotVersions.CmdLine
 import           SnapshotVersions.Snapshot
@@ -19,7 +20,7 @@ main = withParameters $ \(Parameters{..}) -> do
     Just versionMap -> do
       putStrLn "Fetched."
       putStrLn $ "Getting dependent libraries from " <> pCabal <> "..."
-      deps <- findAllDependencies pCabal
+      deps <- findAllDependencies pCabal versionMap Set.empty
 
       putStrLn "Results:"
       forM_ deps $ \pkg ->
