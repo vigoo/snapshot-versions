@@ -4,6 +4,7 @@ module SnapshotVersions.Cabal where
 
 import qualified Data.ByteString.Lazy.Char8            as BL
 import qualified Data.Map                              as Map
+import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Set                              as Set
 import           Distribution.Package
@@ -11,32 +12,35 @@ import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Parse
 import           Distribution.Verbosity
 import           Network.HTTP.Conduit
+import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.Snapshot
 
-findAllDependencies :: FilePath -> VersionMap -> Set.Set String -> IO (Set.Set String)
-findAllDependencies path versionMap processed = do
+findAllDependencies :: (Either FilePath GenericPackageDescription) -> VersionMap -> IndexReader -> Set.Set String -> IO (Set.Set String)
+findAllDependencies (Left path) versionMap indexReader processed = do
   pkgDesc <- readPackageDescription silent path
+  findAllDependencies (Right pkgDesc) versionMap indexReader processed
+findAllDependencies (Right pkgDesc) versionMap indexReader processed = do
   let pkg = unPackageName (pkgName (package (packageDescription pkgDesc)))
   let processed' = Set.union processed (Set.singleton pkg)
   let newPkgs = Set.difference (Set.unions [findLibraryDeps pkgDesc, findExecutableSuiteDeps pkgDesc, findTestSuiteDeps pkgDesc]) processed'
-  childDeps <- recursiveFindDeps versionMap (Set.toList newPkgs) processed'
+  childDeps <- recursiveFindDeps versionMap indexReader (Set.toList newPkgs) processed'
   return $ Set.unions [processed, newPkgs, childDeps]
 
-recursiveFindDeps :: VersionMap -> [String] -> Set.Set String -> IO (Set.Set String)
-recursiveFindDeps versionMap (pkg:pkgs) processed =
+recursiveFindDeps :: VersionMap -> IndexReader -> [String] -> Set.Set String -> IO (Set.Set String)
+recursiveFindDeps versionMap indexReader (pkg:pkgs) processed =
   if (Set.member pkg processed)
-  then recursiveFindDeps versionMap pkgs processed
+  then recursiveFindDeps versionMap indexReader pkgs processed
   else do
     if (Map.member pkg (asMap versionMap))
     then do
-      path <- fetchCabal pkg ((asMap versionMap) Map.! pkg)
-      childDeps <- findAllDependencies path versionMap processed
+      pkgDesc <- fetchCabal indexReader pkg ((asMap versionMap) Map.! pkg)
+      childDeps <- findAllDependencies (Right pkgDesc) versionMap indexReader processed
       let newProcessed = Set.unions [processed, Set.singleton pkg, childDeps]
-      recursiveFindDeps versionMap pkgs newProcessed
+      recursiveFindDeps versionMap indexReader pkgs newProcessed
     else
-      recursiveFindDeps versionMap pkgs (Set.union processed (Set.singleton pkg))
+      recursiveFindDeps versionMap indexReader pkgs (Set.union processed (Set.singleton pkg))
 
-recursiveFindDeps versionMap [] processed = return processed
+recursiveFindDeps versionMap _ [] processed = return processed
 
 findLibraryDeps :: GenericPackageDescription -> Set.Set String
 findLibraryDeps (GenericPackageDescription{..}) =
@@ -58,11 +62,17 @@ findTestSuiteDeps (GenericPackageDescription{..}) =
 packageFromDependency :: Dependency -> String
 packageFromDependency (Dependency name _) = unPackageName name
 
-fetchCabal :: String -> String -> IO FilePath
-fetchCabal name ver = do
-  let url = "https://raw.githubusercontent.com/commercialhaskell/all-cabal-hashes/hackage/" <> name <> "/" <> ver <> "/" <> name <> ".cabal"
-      path = "/tmp/" <> name <> "." <> ver <> ".cabal"
-  putStrLn $ "Pulling " <> url
-  body <- simpleHttp url
-  BL.writeFile path body
-  return path
+fetchCabal :: IndexReader -> String -> String -> IO GenericPackageDescription
+fetchCabal reader name ver = do
+  pkgDesc <- reader name ver
+  case pkgDesc of
+    Just pkgDesc' -> return pkgDesc'
+    Nothing -> fallback
+
+  where
+    fallback = do
+      let url = "https://raw.githubusercontent.com/commercialhaskell/all-cabal-hashes/hackage/" <> name <> "/" <> ver <> "/" <> name <> ".cabal"
+          path = "/tmp/" <> name <> "." <> ver <> ".cabal"
+      putStrLn $ "Pulling " <> url
+      body <- simpleHttp url
+      return $ fromJust $ tryParsePackageDescription $ BL.unpack body -- TODO: error handling

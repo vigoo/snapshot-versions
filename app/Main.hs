@@ -3,11 +3,12 @@
 module Main where
 
 import           Control.Monad
-import qualified Data.Map                  as Map
+import qualified Data.Map                      as Map
 import           Data.Monoid
-import qualified Data.Set                  as Set
+import qualified Data.Set                      as Set
 import           SnapshotVersions.Cabal
 import           SnapshotVersions.CmdLine
+import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.Snapshot
 import           System.IO
 
@@ -19,8 +20,10 @@ main = withParameters $ \(Parameters{..}) -> do
     Nothing -> hPutStrLn stderr "Failed to fetch snapshot."
     Just versionMap -> do
       putStrLn "Fetched."
+      putStrLn $ "Initializing package index"
+      indexReader <- createIndexReader
       putStrLn $ "Getting dependent libraries from " <> pCabal <> "..."
-      deps <- findAllDependencies pCabal versionMap Set.empty
+      deps <- findAllDependencies (Left pCabal) versionMap indexReader Set.empty
 
       putStrLn "Results:"
       forM_ deps $ \pkg ->

@@ -16,14 +16,20 @@ library
   exposed-modules:     SnapshotVersions.CmdLine
                      , SnapshotVersions.Snapshot
                      , SnapshotVersions.Cabal
+                     , SnapshotVersions.PackageIndex
   build-depends:       base >= 4.7 && < 5
                      , containers
+                     , directory
+                     , filepath
                      , bytestring
+                     , transformers
+                     , mtl
                      , Cabal
                      , optparse-applicative
                      , http-conduit
                      , pretty
                      , MissingH
+                     , tar
 
   default-language:    Haskell2010
 
