@@ -8,7 +8,6 @@ before_install:
 
 install:
   - stack --no-terminal --skip-ghc-check setup
-  - stack --no-terminal --skip-ghc-check --only-snapshot build
 
 script:
   - stack --no-terminal --skip-ghc-check build
