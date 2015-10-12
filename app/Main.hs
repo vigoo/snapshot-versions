@@ -8,24 +8,25 @@ import           Data.Monoid
 import qualified Data.Set                      as Set
 import           SnapshotVersions.Cabal
 import           SnapshotVersions.CmdLine
+import           SnapshotVersions.Output
 import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.Snapshot
-import           System.IO
 
 main :: IO ()
 main = withParameters $ \(Parameters{..}) -> do
-  putStrLn $ "Fetching snapshot " <> pSnapshot <> "..."
+  debug pOutput $ "Fetching snapshot " <> pSnapshot <> "..."
   versionMap' <- fetchVersionMap pSnapshot
   case versionMap' of
-    Nothing -> hPutStrLn stderr "Failed to fetch snapshot."
+    Nothing -> logError pOutput "Failed to fetch snapshot."
     Just versionMap -> do
-      putStrLn "Fetched."
-      putStrLn $ "Initializing package index"
-      indexReader <- createIndexReader
-      putStrLn $ "Getting dependent libraries from " <> pCabal <> "..."
-      deps <- findAllDependencies (Left pCabal) versionMap indexReader Set.empty
+      debug pOutput $ "Fetched."
+      debug pOutput $ "Initializing package index"
+      indexReader <- createIndexReader pOutput
+      debug pOutput  $ "Getting dependent libraries from " <> pCabal <> "..."
+      deps <- findAllDependencies pOutput (Left pCabal) versionMap indexReader Set.empty
 
-      putStrLn "Results:"
+      resultStart pOutput
       forM_ deps $ \pkg ->
         when (Map.member pkg (asMap versionMap)) $
-          putStrLn $ pkg <> "-" <> ((asMap versionMap) Map.! pkg)
+          result pOutput pkg ((asMap versionMap) Map.! pkg)
+      resultEnd pOutput

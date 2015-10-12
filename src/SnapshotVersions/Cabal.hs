@@ -12,35 +12,37 @@ import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Parse
 import           Distribution.Verbosity
 import           Network.HTTP.Conduit
+import           SnapshotVersions.CmdLine
+import           SnapshotVersions.Output
 import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.Snapshot
 
-findAllDependencies :: (Either FilePath GenericPackageDescription) -> VersionMap -> IndexReader -> Set.Set String -> IO (Set.Set String)
-findAllDependencies (Left path) versionMap indexReader processed = do
+findAllDependencies :: OutputType -> (Either FilePath GenericPackageDescription) -> VersionMap -> IndexReader -> Set.Set String -> IO (Set.Set String)
+findAllDependencies outputType (Left path) versionMap indexReader processed = do
   pkgDesc <- readPackageDescription silent path
-  findAllDependencies (Right pkgDesc) versionMap indexReader processed
-findAllDependencies (Right pkgDesc) versionMap indexReader processed = do
+  findAllDependencies outputType (Right pkgDesc) versionMap indexReader processed
+findAllDependencies outputType (Right pkgDesc) versionMap indexReader processed = do
   let pkg = unPackageName (pkgName (package (packageDescription pkgDesc)))
   let processed' = Set.union processed (Set.singleton pkg)
   let newPkgs = Set.difference (Set.unions [findLibraryDeps pkgDesc, findExecutableSuiteDeps pkgDesc, findTestSuiteDeps pkgDesc]) processed'
-  childDeps <- recursiveFindDeps versionMap indexReader (Set.toList newPkgs) processed'
+  childDeps <- recursiveFindDeps outputType versionMap indexReader (Set.toList newPkgs) processed'
   return $ Set.unions [processed, newPkgs, childDeps]
 
-recursiveFindDeps :: VersionMap -> IndexReader -> [String] -> Set.Set String -> IO (Set.Set String)
-recursiveFindDeps versionMap indexReader (pkg:pkgs) processed =
+recursiveFindDeps :: OutputType -> VersionMap -> IndexReader -> [String] -> Set.Set String -> IO (Set.Set String)
+recursiveFindDeps outputType versionMap indexReader (pkg:pkgs) processed =
   if (Set.member pkg processed)
-  then recursiveFindDeps versionMap indexReader pkgs processed
+  then recursiveFindDeps outputType versionMap indexReader pkgs processed
   else do
     if (Map.member pkg (asMap versionMap))
     then do
-      pkgDesc <- fetchCabal indexReader pkg ((asMap versionMap) Map.! pkg)
-      childDeps <- findAllDependencies (Right pkgDesc) versionMap indexReader processed
+      pkgDesc <- fetchCabal outputType indexReader pkg ((asMap versionMap) Map.! pkg)
+      childDeps <- findAllDependencies outputType (Right pkgDesc) versionMap indexReader processed
       let newProcessed = Set.unions [processed, Set.singleton pkg, childDeps]
-      recursiveFindDeps versionMap indexReader pkgs newProcessed
+      recursiveFindDeps outputType versionMap indexReader pkgs newProcessed
     else
-      recursiveFindDeps versionMap indexReader pkgs (Set.union processed (Set.singleton pkg))
+      recursiveFindDeps outputType versionMap indexReader pkgs (Set.union processed (Set.singleton pkg))
 
-recursiveFindDeps versionMap _ [] processed = return processed
+recursiveFindDeps _ versionMap _ [] processed = return processed
 
 findLibraryDeps :: GenericPackageDescription -> Set.Set String
 findLibraryDeps (GenericPackageDescription{..}) =
@@ -62,8 +64,8 @@ findTestSuiteDeps (GenericPackageDescription{..}) =
 packageFromDependency :: Dependency -> String
 packageFromDependency (Dependency name _) = unPackageName name
 
-fetchCabal :: IndexReader -> String -> String -> IO GenericPackageDescription
-fetchCabal reader name ver = do
+fetchCabal :: OutputType -> IndexReader -> String -> String -> IO GenericPackageDescription
+fetchCabal outputType reader name ver = do
   pkgDesc <- reader name ver
   case pkgDesc of
     Just pkgDesc' -> return pkgDesc'
@@ -73,6 +75,6 @@ fetchCabal reader name ver = do
     fallback = do
       let url = "https://raw.githubusercontent.com/commercialhaskell/all-cabal-hashes/hackage/" <> name <> "/" <> ver <> "/" <> name <> ".cabal"
           path = "/tmp/" <> name <> "." <> ver <> ".cabal"
-      putStrLn $ "Pulling " <> url
+      debug outputType $ "Pulling " <> url
       body <- simpleHttp url
       return $ fromJust $ tryParsePackageDescription $ BL.unpack body -- TODO: error handling

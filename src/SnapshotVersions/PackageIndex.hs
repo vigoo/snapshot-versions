@@ -8,6 +8,8 @@ import qualified Data.Map                              as Map
 import           Data.Monoid
 import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Parse
+import           SnapshotVersions.CmdLine
+import           SnapshotVersions.Output
 import           System.Directory
 import           System.FilePath
 
@@ -16,22 +18,22 @@ type IndexReader = String -> String -> IO (Maybe GenericPackageDescription)
 indexPath :: IO FilePath
 indexPath = getHomeDirectory >>= \dir -> return (dir </> ".stack" </> "indices" </> "Hackage" </>"00-index.tar")
 
-createIndexReader :: IO IndexReader
-createIndexReader = do
+createIndexReader :: OutputType -> IO IndexReader
+createIndexReader outputType = do
   path <- indexPath
-  contentReader <- createIndexReaderFor path
+  contentReader <- createIndexReaderFor outputType path
   return $ \name version -> do
     let relPath = name </> version </> (name <> ".cabal")
     return $ tryParsePackageDescription =<< (contentReader relPath)
 
-createIndexReaderFor :: FilePath -> IO (FilePath -> Maybe String)
-createIndexReaderFor tarPath = do
+createIndexReaderFor :: OutputType -> FilePath -> IO (FilePath -> Maybe String)
+createIndexReaderFor outputType tarPath = do
   tarContents <- BL.readFile tarPath
   let entries = Tar.read tarContents
       mapping = Tar.foldEntries addEntryToMap (Just Map.empty) (const Nothing) entries
   case mapping of
     Just mapping' -> do
-      putStrLn $ "Read " <> show (Map.size mapping') <> " entries"
+      debug outputType $ "Read " <> show (Map.size mapping') <> " entries"
       return $ \relPath -> (B.unpack . BL.toStrict) <$> Map.lookup relPath mapping'
     Nothing -> return $ const Nothing
 
