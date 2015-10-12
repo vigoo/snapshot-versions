@@ -8,7 +8,8 @@ before_install:
   - export PATH=/opt/ghc/7.10.2/bin:$PATH
 
 script:
-  - stack build
+  - ./travis_long stack --no-terminal --skip-ghc-check setup
+  - ./travis_long stack --no-terminal --skip-ghc-check build
 
 addons:
   apt:
