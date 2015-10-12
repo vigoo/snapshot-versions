@@ -4,13 +4,9 @@ language: c
 before_install:
   - mkdir -p ~/.local/bin
   - travis_retry curl -L https://github.com/commercialhaskell/stack/releases/download/v0.1.5.0/stack-0.1.5.0-x86_64-linux.tar.gz | tar xz -C ~/.local/bin
-  - export PATH=/opt/ghc/7.10.2/bin:~/.local/bin:$PATH
-  - echo $HOME/.local/bin
-  - ls -hal ~/.local/bin
+  - export PATH=/opt/ghc/7.10.2/bin:~/.local/bin/stack-0.1.5.0-x86_64-linux:$PATH
 
 install:
-  - echo $HOME/.local/bin
-  - echo $PATH
   - stack --no-terminal --skip-ghc-check setup
   - stack --no-terminal --skip-ghc-check --only-snapshot build
 
