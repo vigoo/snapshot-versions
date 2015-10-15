@@ -42,6 +42,7 @@ executable snapshot-versions
   build-depends:       base
                      , snapshot-versions
                      , containers
+                     , mtl
   default-language:    Haskell2010
 
 test-suite snapshot-versions-test

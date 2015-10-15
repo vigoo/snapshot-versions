@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 module SnapshotVersions.PackageIndex where
 
 import qualified Codec.Archive.Tar                     as Tar
@@ -14,12 +15,12 @@ import           SnapshotVersions.Output
 import           System.Directory
 import           System.FilePath
 
-type IndexReader = String -> String -> OutputMonad IO (Maybe GenericPackageDescription)
+type IndexReader m = String -> String -> m (Maybe GenericPackageDescription)
 
 indexPath :: IO FilePath
 indexPath = getHomeDirectory >>= \dir -> return (dir </> ".stack" </> "indices" </> "Hackage" </>"00-index.tar")
 
-createIndexReader :: OutputMonad IO IndexReader
+createIndexReader :: (Monad m, MonadIO m, MonadOutput m) => m (IndexReader m)
 createIndexReader = do
   path <- liftIO indexPath
   contentReader <- createIndexReaderFor path
@@ -27,7 +28,7 @@ createIndexReader = do
     let relPath = name </> version </> (name <> ".cabal")
     return $ tryParsePackageDescription =<< (contentReader relPath)
 
-createIndexReaderFor :: FilePath -> OutputMonad IO (FilePath -> Maybe String)
+createIndexReaderFor :: (Monad m, MonadIO m, MonadOutput m) => FilePath -> m (FilePath -> Maybe String)
 createIndexReaderFor tarPath = do
   tarContents <- liftIO $ BL.readFile tarPath
   let entries = Tar.read tarContents

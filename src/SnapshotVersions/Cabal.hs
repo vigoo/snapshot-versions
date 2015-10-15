@@ -21,26 +21,27 @@ import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.ProcessedPackages
 import           SnapshotVersions.Snapshot
 
-findAllDependencies :: (Either FilePath GenericPackageDescription) -> VersionMap -> IndexReader -> ProcessedPackages -> OutputMonad IO (ProcessedPackages)
-findAllDependencies (Left path) versionMap indexReader processed = do
+findAllDependencies :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => (Either FilePath GenericPackageDescription) -> (IndexReader m) -> ProcessedPackages -> m (ProcessedPackages)
+findAllDependencies (Left path) indexReader processed = do
   pkgDesc <- liftIO $ readPackageDescription silent path
-  findAllDependencies (Right pkgDesc) versionMap indexReader processed
-findAllDependencies (Right pkgDesc) versionMap indexReader processed = do
+  findAllDependencies (Right pkgDesc) indexReader processed
+findAllDependencies (Right pkgDesc) indexReader processed = do
   let pkg = unPackageName (pkgName (package (packageDescription pkgDesc)))
   let pkgVer = Just $ showVersion (pkgVersion (package (packageDescription pkgDesc)))
   debug $ "Processing " <> pkg <> "-" <> fromJust pkgVer
   let processed' = addProcessedPackage (DependentPackage pkg pkgVer) processed
   let newPkgs = findNewPackages processed' $ Set.unions [findLibraryDeps pkgDesc, findExecutableSuiteDeps pkgDesc, findTestSuiteDeps pkgDesc]
-  childDeps <- indented $ recursiveFindDeps versionMap indexReader (toList newPkgs) processed'
+  childDeps <- indented $ recursiveFindDeps indexReader (toList newPkgs) processed'
   return $ mergeProcessedPackages [processed, newPkgs, childDeps]
 
-recursiveFindDeps :: VersionMap -> IndexReader -> [DependentPackage] -> ProcessedPackages -> OutputMonad IO (ProcessedPackages)
-recursiveFindDeps versionMap indexReader (pkg:pkgs) processed =
+recursiveFindDeps :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => (IndexReader m) -> [DependentPackage] -> ProcessedPackages -> m (ProcessedPackages)
+recursiveFindDeps indexReader (pkg:pkgs) processed =
   if (isProcessed pkg processed && not (addsExplicitVersion pkg processed))
   then do
     debug $ pkgName <> " is already processed"
-    recursiveFindDeps versionMap indexReader pkgs processed
+    recursiveFindDeps indexReader pkgs processed
   else do
+    versionMap <- getVersionMap
     if (Map.member pkgName (asMap versionMap))
     then do
       -- The package is part of the snapshot. We use the snapshot version to read its package
@@ -58,20 +59,20 @@ recursiveFindDeps versionMap indexReader (pkg:pkgs) processed =
           proceedWithPackageVersion (ExplicitVersion pkgVer)
         Nothing -> do
           debug $ pkgName <> " has no explicit version"
-          recursiveFindDeps versionMap indexReader pkgs (addProcessedPackage pkg processed)
+          recursiveFindDeps indexReader pkgs (addProcessedPackage pkg processed)
 
   where
     pkgName = dpName pkg
     proceedWithPackageVersion (ExplicitVersion ver) = do
       debug $ "Reading cabal for " <> pkgName <> " version " <> ver
       pkgDesc <- fetchCabal indexReader pkgName ver
-      childDeps <- findAllDependencies (Right pkgDesc) versionMap indexReader processed
+      childDeps <- findAllDependencies (Right pkgDesc) indexReader processed
       let newProcessed = addProcessedPackage (DependentPackage pkgName (Just ver)) $ mergeProcessedPackages [processed, childDeps]
-      recursiveFindDeps versionMap indexReader pkgs newProcessed
+      recursiveFindDeps indexReader pkgs newProcessed
     proceedWithPackageVersion InstalledGlobal =
-      recursiveFindDeps versionMap indexReader pkgs (addProcessedPackage pkg processed)
+      recursiveFindDeps indexReader pkgs (addProcessedPackage pkg processed)
 
-recursiveFindDeps versionMap _ [] processed = do
+recursiveFindDeps _ [] processed = do
   debug $ "---"
   return processed
 
@@ -101,7 +102,7 @@ packageFromDependency (Dependency name versionRange) =
 explicitVersionFromRange :: VersionRange -> Maybe String
 explicitVersionFromRange vr = showVersion <$> isSpecificVersion vr
 
-fetchCabal :: IndexReader -> String -> String -> OutputMonad IO GenericPackageDescription
+fetchCabal :: (Monad m, MonadIO m, MonadOutput m) => (IndexReader m) -> String -> String -> m GenericPackageDescription
 fetchCabal reader name ver = do
   pkgDesc <- reader name ver
   case pkgDesc of
