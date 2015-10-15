@@ -17,6 +17,7 @@ library
                      , SnapshotVersions.Snapshot
                      , SnapshotVersions.Cabal
                      , SnapshotVersions.PackageIndex
+                     , SnapshotVersions.ProcessedPackages
                      , SnapshotVersions.Output
   build-depends:       base >= 4.7 && < 5
                      , containers
