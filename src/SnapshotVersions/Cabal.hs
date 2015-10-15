@@ -2,6 +2,7 @@
 
 module SnapshotVersions.Cabal where
 
+import           Control.Monad.IO.Class
 import qualified Data.ByteString.Lazy.Char8            as BL
 import qualified Data.Map                              as Map
 import           Data.Maybe
@@ -20,34 +21,31 @@ import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.ProcessedPackages
 import           SnapshotVersions.Snapshot
 
-indent :: String -> String
-indent s = s <> "  "
-
-findAllDependencies :: OutputType -> String -> (Either FilePath GenericPackageDescription) -> VersionMap -> IndexReader -> ProcessedPackages -> IO (ProcessedPackages)
-findAllDependencies outputType prefix (Left path) versionMap indexReader processed = do
-  pkgDesc <- readPackageDescription silent path
-  findAllDependencies outputType prefix (Right pkgDesc) versionMap indexReader processed
-findAllDependencies outputType prefix (Right pkgDesc) versionMap indexReader processed = do
+findAllDependencies :: (Either FilePath GenericPackageDescription) -> VersionMap -> IndexReader -> ProcessedPackages -> OutputMonad IO (ProcessedPackages)
+findAllDependencies (Left path) versionMap indexReader processed = do
+  pkgDesc <- liftIO $ readPackageDescription silent path
+  findAllDependencies (Right pkgDesc) versionMap indexReader processed
+findAllDependencies (Right pkgDesc) versionMap indexReader processed = do
   let pkg = unPackageName (pkgName (package (packageDescription pkgDesc)))
   let pkgVer = Just $ showVersion (pkgVersion (package (packageDescription pkgDesc)))
-  debug outputType $ prefix <> "Processing " <> pkg <> "-" <> fromJust pkgVer
+  debug $ "Processing " <> pkg <> "-" <> fromJust pkgVer
   let processed' = addProcessedPackage (DependentPackage pkg pkgVer) processed
   let newPkgs = findNewPackages processed' $ Set.unions [findLibraryDeps pkgDesc, findExecutableSuiteDeps pkgDesc, findTestSuiteDeps pkgDesc]
-  childDeps <- recursiveFindDeps outputType (indent prefix) versionMap indexReader (toList newPkgs) processed'
+  childDeps <- indented $ recursiveFindDeps versionMap indexReader (toList newPkgs) processed'
   return $ mergeProcessedPackages [processed, newPkgs, childDeps]
 
-recursiveFindDeps :: OutputType -> String -> VersionMap -> IndexReader -> [DependentPackage] -> ProcessedPackages -> IO (ProcessedPackages)
-recursiveFindDeps outputType prefix versionMap indexReader (pkg:pkgs) processed =
+recursiveFindDeps :: VersionMap -> IndexReader -> [DependentPackage] -> ProcessedPackages -> OutputMonad IO (ProcessedPackages)
+recursiveFindDeps versionMap indexReader (pkg:pkgs) processed =
   if (isProcessed pkg processed && not (addsExplicitVersion pkg processed))
   then do
-    debug outputType $ prefix <> pkgName <> " is already processed"
-    recursiveFindDeps outputType prefix versionMap indexReader pkgs processed
+    debug $ pkgName <> " is already processed"
+    recursiveFindDeps versionMap indexReader pkgs processed
   else do
     if (Map.member pkgName (asMap versionMap))
     then do
       -- The package is part of the snapshot. We use the snapshot version to read its package
       -- definition and traverse its dependencies
-      debug outputType $ prefix <> pkgName <> " is specified in the snapshot"
+      debug $ pkgName <> " is specified in the snapshot"
       proceedWithPackageVersion ((asMap versionMap) Map.! pkgName)
     else do
       -- The package is not part of the snapshot. If there is an explicit version constraint,
@@ -56,25 +54,25 @@ recursiveFindDeps outputType prefix versionMap indexReader (pkg:pkgs) processed 
       -- in the snapshot version map)
       case (dpExplicitVersion pkg) of
         Just pkgVer -> do
-          debug outputType $ prefix <> pkgName <> " has explicit version " <> pkgVer
+          debug $ pkgName <> " has explicit version " <> pkgVer
           proceedWithPackageVersion (ExplicitVersion pkgVer)
         Nothing -> do
-          debug outputType $ prefix <> pkgName <> " has no explicit version"
-          recursiveFindDeps outputType prefix versionMap indexReader pkgs (addProcessedPackage pkg processed)
+          debug $ pkgName <> " has no explicit version"
+          recursiveFindDeps versionMap indexReader pkgs (addProcessedPackage pkg processed)
 
   where
     pkgName = dpName pkg
     proceedWithPackageVersion (ExplicitVersion ver) = do
-      debug outputType $ prefix <> "Reading cabal for " <> pkgName <> " version " <> ver
-      pkgDesc <- fetchCabal outputType indexReader pkgName ver
-      childDeps <- findAllDependencies outputType prefix (Right pkgDesc) versionMap indexReader processed
+      debug $ "Reading cabal for " <> pkgName <> " version " <> ver
+      pkgDesc <- fetchCabal indexReader pkgName ver
+      childDeps <- findAllDependencies (Right pkgDesc) versionMap indexReader processed
       let newProcessed = addProcessedPackage (DependentPackage pkgName (Just ver)) $ mergeProcessedPackages [processed, childDeps]
-      recursiveFindDeps outputType prefix versionMap indexReader pkgs newProcessed
+      recursiveFindDeps versionMap indexReader pkgs newProcessed
     proceedWithPackageVersion InstalledGlobal =
-      recursiveFindDeps outputType prefix versionMap indexReader pkgs (addProcessedPackage pkg processed)
+      recursiveFindDeps versionMap indexReader pkgs (addProcessedPackage pkg processed)
 
-recursiveFindDeps outputType prefix versionMap _ [] processed = do
-  debug outputType $ prefix <> "---"
+recursiveFindDeps versionMap _ [] processed = do
+  debug $ "---"
   return processed
 
 findLibraryDeps :: GenericPackageDescription -> Set.Set DependentPackage
@@ -103,8 +101,8 @@ packageFromDependency (Dependency name versionRange) =
 explicitVersionFromRange :: VersionRange -> Maybe String
 explicitVersionFromRange vr = showVersion <$> isSpecificVersion vr
 
-fetchCabal :: OutputType -> IndexReader -> String -> String -> IO GenericPackageDescription
-fetchCabal outputType reader name ver = do
+fetchCabal :: IndexReader -> String -> String -> OutputMonad IO GenericPackageDescription
+fetchCabal reader name ver = do
   pkgDesc <- reader name ver
   case pkgDesc of
     Just pkgDesc' -> return pkgDesc'
@@ -114,6 +112,6 @@ fetchCabal outputType reader name ver = do
     fallback = do
       let url = "https://raw.githubusercontent.com/commercialhaskell/all-cabal-hashes/hackage/" <> name <> "/" <> ver <> "/" <> name <> ".cabal"
           path = "/tmp/" <> name <> "." <> ver <> ".cabal"
-      debug outputType $ "Pulling " <> url
+      debug $ "Pulling " <> url
       body <- simpleHttp url
       return $ fromJust $ tryParsePackageDescription $ BL.unpack body -- TODO: error handling

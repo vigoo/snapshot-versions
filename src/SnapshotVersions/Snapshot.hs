@@ -1,5 +1,6 @@
 module SnapshotVersions.Snapshot where
 
+import           Control.Monad.IO.Class
 import qualified Data.ByteString.Char8      as B8
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Map                   as Map
@@ -8,17 +9,18 @@ import           Data.Monoid
 import           Data.String.Utils
 import           Distribution.ParseUtils
 import           Network.HTTP.Conduit
+import           SnapshotVersions.CmdLine
+import           SnapshotVersions.Output
 import           Text.PrettyPrint.HughesPJ  hiding ((<>))
 
-type SnapshotName = String
 newtype VersionMap = VersionMap { asMap :: Map.Map String VersionInSnapshot }
 
 data VersionInSnapshot = ExplicitVersion String | InstalledGlobal
 
-fetchVersionMap :: SnapshotName -> IO (Maybe VersionMap)
+fetchVersionMap :: SnapshotName -> OutputMonad IO (Maybe VersionMap)
 fetchVersionMap name = do
   let url = "https://www.stackage.org/" <> name <> "/cabal.config"
-  body <- simpleHttp url
+  body <- liftIO $ simpleHttp url
 
   let result = extractRawConstraints body
   case result of

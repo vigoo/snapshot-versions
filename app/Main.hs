@@ -14,25 +14,27 @@ import           SnapshotVersions.ProcessedPackages
 import           SnapshotVersions.Snapshot
 
 main :: IO ()
-main = withParameters $ \(Parameters{..}) -> do
-  debug pOutput $ "Fetching snapshot " <> pSnapshot <> "..."
-  versionMap' <- fetchVersionMap pSnapshot
-  case versionMap' of
-    Nothing -> logError pOutput "Failed to fetch snapshot."
-    Just versionMap -> do
-      debug pOutput $ "Fetched."
-      debug pOutput $ "Initializing package index"
-      indexReader <- createIndexReader pOutput
-      debug pOutput  $ "Getting dependent libraries from " <> pCabal <> "..."
-      deps <- findAllDependencies pOutput "" (Left pCabal) versionMap indexReader (asProcessedPackages Set.empty)
+main =
+  withParameters $ \(Parameters{..}) ->
+    withOutput pOutput pDebug $ do
+      info $ "Fetching snapshot " <> pSnapshot <> "..."
+      versionMap' <- fetchVersionMap pSnapshot
+      case versionMap' of
+        Nothing -> logError "Failed to fetch snapshot."
+        Just versionMap -> do
+          info $ "Fetched."
+          info $ "Initializing package index"
+          indexReader <- createIndexReader
+          info $ "Getting dependent libraries from " <> pCabal <> "..."
+          deps <- findAllDependencies (Left pCabal) versionMap indexReader (asProcessedPackages Set.empty)
 
-      resultStart pOutput
-      forM_ (toList deps) $ \(DependentPackage pkg explicitVer) ->
-        if (Map.member pkg (asMap versionMap))
-        then case ((asMap versionMap) Map.! pkg) of
-               ExplicitVersion ver -> result pOutput pkg ver
-               _ -> return ()
-        else case explicitVer  of
-               Nothing -> logWarning pOutput $ show pkg <> " is not part of the snapshot; specifying its version in .cabal is recommended"
-               _ -> return ()
-      resultEnd pOutput
+          resultStart
+          forM_ (toList deps) $ \(DependentPackage pkg explicitVer) ->
+            if (Map.member pkg (asMap versionMap))
+            then case ((asMap versionMap) Map.! pkg) of
+              ExplicitVersion ver -> result pkg ver
+              _ -> return ()
+            else case explicitVer  of
+             Nothing -> logWarning $ show pkg <> " is not part of the snapshot; specifying its version in .cabal is recommended"
+             _ -> return ()
+          resultEnd
