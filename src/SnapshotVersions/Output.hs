@@ -11,6 +11,9 @@ debug _ _ = return ()
 logError :: OutputType -> String -> IO ()
 logError _ s = hPutStrLn stderr s
 
+logWarning :: OutputType -> String -> IO ()
+logWarning _ s = hPutStrLn stderr $ "Warning: " <> s
+
 resultStart :: OutputType -> IO ()
 resultStart Default = putStrLn "Results:"
 resultStart CabalConstraints = putStr "constraints: "

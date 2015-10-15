@@ -11,7 +11,9 @@ import           Network.HTTP.Conduit
 import           Text.PrettyPrint.HughesPJ  hiding ((<>))
 
 type SnapshotName = String
-newtype VersionMap = VersionMap { asMap :: Map.Map String String }
+newtype VersionMap = VersionMap { asMap :: Map.Map String VersionInSnapshot }
+
+data VersionInSnapshot = ExplicitVersion String | InstalledGlobal
 
 fetchVersionMap :: SnapshotName -> IO (Maybe VersionMap)
 fetchVersionMap name = do
@@ -21,16 +23,16 @@ fetchVersionMap name = do
   let result = extractRawConstraints body
   case result of
     ParseOk _ rawConstraints -> do
-      let constraints = Map.fromList $ catMaybes $ map (parseConstraint . strip) (split "," rawConstraints)
+      let constraints = Map.fromList $ map (parseConstraint . strip) (split "," rawConstraints)
       return $ Just $ VersionMap constraints
     _ -> return Nothing
 
-parseConstraint :: String -> Maybe (String, String)
+parseConstraint :: String -> (String, VersionInSnapshot)
 parseConstraint entry =
   let [name, constr] = words entry
   in if constr == "installed"
-     then Nothing
-     else Just (name, drop 2 constr)
+     then (name, InstalledGlobal)
+     else (name, ExplicitVersion $ drop 2 constr)
 
 extractRawConstraints :: BL.ByteString -> ParseResult String
 extractRawConstraints src =

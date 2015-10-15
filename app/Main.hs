@@ -26,7 +26,9 @@ main = withParameters $ \(Parameters{..}) -> do
       deps <- findAllDependencies pOutput (Left pCabal) versionMap indexReader Set.empty
 
       resultStart pOutput
-      forM_ deps $ \pkg ->
+      forM_ deps $ \(DependentPackage pkg _) ->
         when (Map.member pkg (asMap versionMap)) $
-          result pOutput pkg ((asMap versionMap) Map.! pkg)
+          case ((asMap versionMap) Map.! pkg) of
+            ExplicitVersion ver -> result pOutput pkg ver
+            _ -> return ()
       resultEnd pOutput
