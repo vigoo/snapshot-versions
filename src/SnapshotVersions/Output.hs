@@ -21,6 +21,16 @@ newtype OutputMonad m a =
   OutputMonad { om :: StateT OutputState m a }
   deriving (Applicative, Functor, Monad, MonadIO, MonadState OutputState, MonadTrans)
 
+data ListPos = ListStart
+             | ListMiddle
+             | ListEnd
+             deriving (Show, Eq)
+
+toListPos :: Int -> Int -> ListPos
+toListPos 0 _ = ListStart
+toListPos i l | i < (l-1) = ListMiddle
+toListPos _ _ = ListEnd
+
 withOutput :: Monad m => OutputType -> Bool -> OutputMonad m () -> m ()
 withOutput typ dbg fn = do
   _ <- runStateT (om fn) $ OutputState { osIndent = ""
@@ -37,7 +47,7 @@ class Monad m => MonadOutput m where
   logWarning :: String -> m ()
   resultStart :: m ()
   resultEnd :: m ()
-  result :: String -> String -> m ()
+  result :: ListPos -> String -> String -> m ()
 
 instance (Monad m, MonadIO m) => MonadOutput (OutputMonad m) where
   indented fn = do
@@ -71,8 +81,12 @@ instance (Monad m, MonadIO m) => MonadOutput (OutputMonad m) where
 
   resultEnd = return ()
 
-  result name ver = get >>= \OutputState{..} ->
+  result pos name ver = get >>= \OutputState{..} ->
     case osOutputType of
       Default -> liftIO $ putStrLn $ name <> ": " <> ver
       StackYaml -> liftIO $ putStrLn $ name <> "-" <> ver
-      CabalConstraints -> liftIO $ putStrLn $ "             " <> name <> " ==" <> ver <> ","
+      CabalConstraints ->
+        case pos of
+          ListStart  -> liftIO $ putStrLn $ name <> " ==" <> ver <> ","
+          ListMiddle -> liftIO $ putStrLn $ "             " <> name <> " ==" <> ver <> ","
+          ListEnd    -> liftIO $ putStrLn $ "             " <> name <> " ==" <> ver

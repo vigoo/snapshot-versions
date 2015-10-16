@@ -33,6 +33,7 @@ library
                      , MissingH
                      , tar
 
+  ghc-options:         -ddump-deriv
   default-language:    Haskell2010
 
 executable snapshot-versions

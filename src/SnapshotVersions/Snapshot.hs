@@ -38,7 +38,7 @@ instance (MonadOutput m) => MonadOutput (VersionMapReader m) where
   logWarning = lift . logWarning
   resultStart = lift resultStart
   resultEnd = lift resultEnd
-  result n v = lift $ result n v
+  result p n v = lift $ result p n v
 
 withVersionMap :: forall m. (Monad m, MonadIO m, MonadOutput m) => SnapshotName -> VersionMapReader m () -> m ()
 withVersionMap name fn = do
