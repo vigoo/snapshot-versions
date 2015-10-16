@@ -88,5 +88,5 @@ instance (Monad m, MonadIO m) => MonadOutput (OutputMonad m) where
       CabalConstraints ->
         case pos of
           ListStart  -> liftIO $ putStrLn $ name <> " ==" <> ver <> ","
-          ListMiddle -> liftIO $ putStrLn $ "             " <> name <> " ==" <> ver <> ","
-          ListEnd    -> liftIO $ putStrLn $ "             " <> name <> " ==" <> ver
+          ListMiddle -> liftIO $ putStrLn $ "\t\t\t " <> name <> " ==" <> ver <> ","
+          ListEnd    -> liftIO $ putStrLn $ "\t\t\t " <> name <> " ==" <> ver
