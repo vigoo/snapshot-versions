@@ -26,7 +26,7 @@ dumpResults deps = getVersionMap >>= \versionMap -> do
       Nothing -> do
         logWarning $ show pkg <> " is not part of the snapshot; specifying its version in .cabal is recommended"
         return Nothing
-      _ -> return Nothing
+      Just ver -> return $ Just (pkg, ver)
 
   let filteredResults = catMaybes results
 
