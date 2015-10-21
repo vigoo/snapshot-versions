@@ -3,15 +3,18 @@
 module SnapshotVersions.Cabal where
 
 import           Control.Monad.IO.Class
-import qualified Data.ByteString.Lazy.Char8            as BL
-import qualified Data.Map                              as Map
+import qualified Data.ByteString.Lazy.Char8                    as BL
+import qualified Data.Map                                      as Map
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Set                              as Set
+import qualified Data.Set                                      as Set
 import           Data.Version
+import           Distribution.Compiler
 import           Distribution.Package
 import           Distribution.PackageDescription
+import           Distribution.PackageDescription.Configuration
 import           Distribution.PackageDescription.Parse
+import           Distribution.System
 import           Distribution.Verbosity
 import           Distribution.Version
 import           Network.HTTP.Conduit
@@ -26,13 +29,26 @@ findAllDependencies (Left path) indexReader processed = do
   pkgDesc <- liftIO $ readPackageDescription silent path
   findAllDependencies (Right pkgDesc) indexReader processed
 findAllDependencies (Right pkgDesc) indexReader processed = do
-  let pkg = unPackageName (pkgName (package (packageDescription pkgDesc)))
-  let pkgVer = Just $ showVersion (pkgVersion (package (packageDescription pkgDesc)))
-  debug $ "Processing " <> pkg <> "-" <> fromJust pkgVer
-  let processed' = addProcessedPackage (DependentPackage pkg pkgVer) processed
-  let newPkgs = findNewPackages processed' $ Set.unions [findLibraryDeps pkgDesc, findExecutableSuiteDeps pkgDesc, findTestSuiteDeps pkgDesc]
-  childDeps <- indented $ recursiveFindDeps indexReader (toList newPkgs) processed'
-  return $ mergeProcessedPackages [processed, newPkgs, childDeps]
+  let finalizeResult = finalizePackageDescription
+                         []             -- TODO: configurable flags
+                         (const True)
+                         buildPlatform  -- TODO: configurable platform
+                         (unknownCompilerInfo
+                          (CompilerId buildCompilerFlavor (Version [] [])) NoAbiTag)
+                         []
+                         pkgDesc
+  case finalizeResult of
+    Left missingDeps -> do
+      logError $ "Could not finalize package description, missing dependencies: " <> show missingDeps
+      return $ asProcessedPackages Set.empty
+    Right (finalizedPkgDesc, _) -> do
+      let pkg = unPackageName (pkgName (package finalizedPkgDesc))
+      let pkgVer = Just $ showVersion (pkgVersion (package finalizedPkgDesc))
+      debug $ "Processing " <> pkg <> "-" <> fromJust pkgVer
+      let processed' = addProcessedPackage (DependentPackage pkg pkgVer) processed
+      let newPkgs = findNewPackages processed' $ Set.fromList $ map packageFromDependency (buildDepends finalizedPkgDesc)
+      childDeps <- indented $ recursiveFindDeps indexReader (toList newPkgs) processed'
+      return $ mergeProcessedPackages [processed, newPkgs, childDeps]
 
 recursiveFindDeps :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => (IndexReader m) -> [DependentPackage] -> ProcessedPackages -> m (ProcessedPackages)
 recursiveFindDeps indexReader (pkg:pkgs) processed =
