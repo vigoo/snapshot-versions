@@ -1,6 +1,9 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module SnapshotVersions.Cabal where
+module SnapshotVersions.Cabal
+       ( findAllDependencies
+       )
+       where
 
 import           Control.Monad.IO.Class
 import qualified Data.ByteString.Lazy.Char8                    as BL
@@ -18,7 +21,6 @@ import           Distribution.System
 import           Distribution.Verbosity
 import           Distribution.Version
 import           Network.HTTP.Conduit
-import           SnapshotVersions.CmdLine
 import           SnapshotVersions.Output
 import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.ProcessedPackages
@@ -92,23 +94,6 @@ recursiveFindDeps _ [] processed = do
   debug $ "---"
   return processed
 
-findLibraryDeps :: GenericPackageDescription -> Set.Set DependentPackage
-findLibraryDeps (GenericPackageDescription{..}) =
-  case condLibrary of
-    Just (CondNode (Library{..}) _ _) -> pkgSet libBuildInfo
-    Nothing -> Set.empty
-
-pkgSet :: BuildInfo -> Set.Set DependentPackage
-pkgSet bi = Set.fromList $ map packageFromDependency (targetBuildDepends bi)
-
-findExecutableSuiteDeps :: GenericPackageDescription -> Set.Set DependentPackage
-findExecutableSuiteDeps (GenericPackageDescription{..}) =
-  foldl (\set d -> let (_, CondNode e _ _) = d in set `Set.union` (pkgSet (buildInfo e))) Set.empty condExecutables
-
-findTestSuiteDeps :: GenericPackageDescription -> Set.Set DependentPackage
-findTestSuiteDeps (GenericPackageDescription{..}) =
-  foldl (\set d -> let (_, CondNode t _ _) = d in set `Set.union` (pkgSet (testBuildInfo t))) Set.empty condTestSuites
-
 packageFromDependency :: Dependency -> DependentPackage
 packageFromDependency (Dependency name versionRange) =
   DependentPackage { dpName = unPackageName name
@@ -128,7 +113,6 @@ fetchCabal reader name ver = do
   where
     fallback = do
       let url = "https://raw.githubusercontent.com/commercialhaskell/all-cabal-hashes/hackage/" <> name <> "/" <> ver <> "/" <> name <> ".cabal"
-          path = "/tmp/" <> name <> "." <> ver <> ".cabal"
       debug $ "Pulling " <> url
       body <- simpleHttp url
       return $ fromJust $ tryParsePackageDescription $ BL.unpack body -- TODO: error handling

@@ -3,7 +3,6 @@
 module Main where
 
 import           Control.Monad
-import           Control.Monad.Reader
 import qualified Data.Map                           as Map
 import           Data.Maybe
 import           Data.Monoid
@@ -31,7 +30,7 @@ dumpResults deps = getVersionMap >>= \versionMap -> do
   let filteredResults = catMaybes results
 
   resultStart
-  forM (filteredResults `zip` [0..]) $ \((pkg, ver), i) -> result (i `toListPos` (length filteredResults)) pkg ver
+  forM_ (filteredResults `zip` [0..]) $ \((pkg, ver), i) -> result (i `toListPos` (length filteredResults)) pkg ver
   resultEnd
 
 main :: IO ()

@@ -2,11 +2,10 @@
 
 module SnapshotVersions.ProcessedPackages where
 
-import           Control.Applicative
-import qualified Data.Map.Strict     as Map
+import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Set            as Set
+import qualified Data.Set        as Set
 
 data DependentPackage =
   DependentPackage { dpName            :: String
@@ -50,7 +49,7 @@ mergeProcessedPackages = foldr mergeTwoSets (ProcessedPackages Map.empty)
     alterPackageEntry dp Nothing = Just dp
     alterPackageEntry dp1 (Just dp0) =
       case dpExplicitVersion dp0 of
-        Just ver -> Just dp0
+        Just _ -> Just dp0
         Nothing -> Just dp1
 
 isProcessed :: DependentPackage -> ProcessedPackages -> Bool

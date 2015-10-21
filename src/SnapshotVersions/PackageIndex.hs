@@ -2,7 +2,6 @@
 module SnapshotVersions.PackageIndex where
 
 import qualified Codec.Archive.Tar                     as Tar
-import           Control.Applicative
 import           Control.Monad.IO.Class
 import qualified Data.ByteString.Char8                 as B
 import qualified Data.ByteString.Lazy                  as BL
@@ -10,7 +9,6 @@ import qualified Data.Map                              as Map
 import           Data.Monoid
 import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Parse
-import           SnapshotVersions.CmdLine
 import           SnapshotVersions.Output
 import           System.Directory
 import           System.FilePath

@@ -7,7 +7,6 @@ import           Control.Monad.Reader
 import qualified Data.ByteString.Char8      as B8
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Map                   as Map
-import           Data.Maybe
 import           Data.Monoid
 import           Data.String.Utils
 import           Distribution.ParseUtils
@@ -53,8 +52,8 @@ fetchVersionMap name = do
   let url = "https://www.stackage.org/" <> name <> "/cabal.config"
   body <- liftIO $ simpleHttp url
 
-  let result = extractRawConstraints body
-  case result of
+  let res = extractRawConstraints body
+  case res of
     ParseOk _ rawConstraints -> do
       let constraints = Map.fromList $ map (parseConstraint . strip) (split "," rawConstraints)
       return $ Just $ VersionMap constraints
