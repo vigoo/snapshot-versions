@@ -43,6 +43,6 @@ main =
         info $ "Initializing package index"
         indexReader <- createIndexReader
         info $ "Getting dependent libraries from " <> pCabal <> "..."
-        deps <- findAllDependencies (Left pCabal) indexReader (asProcessedPackages Set.empty)
+        deps <- findAllDependencies (Left pCabal) indexReader (asProcessedPackages Set.empty) True
 
         dumpResults deps

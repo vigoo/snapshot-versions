@@ -1,5 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-
 module SnapshotVersions.Cabal
        ( findAllDependencies
        )
@@ -13,7 +11,7 @@ import           Data.Monoid
 import qualified Data.Set                                      as Set
 import           Data.Version
 import           Distribution.Compiler
-import           Distribution.Package
+import qualified Distribution.Package                          as Pkg
 import           Distribution.PackageDescription
 import           Distribution.PackageDescription.Configuration
 import           Distribution.PackageDescription.Parse
@@ -26,11 +24,11 @@ import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.ProcessedPackages
 import           SnapshotVersions.Snapshot
 
-findAllDependencies :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => (Either FilePath GenericPackageDescription) -> (IndexReader m) -> ProcessedPackages -> m (ProcessedPackages)
-findAllDependencies (Left path) indexReader processed = do
-  pkgDesc <- liftIO $ readPackageDescription silent path
-  findAllDependencies (Right pkgDesc) indexReader processed
-findAllDependencies (Right pkgDesc) indexReader processed = do
+findAllDependencies :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => Either FilePath GenericPackageDescription -> IndexReader m -> ProcessedPackages -> Bool -> m (ProcessedPackages)
+findAllDependencies (Left p) indexReader processed toplevel = do
+  pkgDesc <- liftIO $ readPackageDescription silent p
+  findAllDependencies (Right pkgDesc) indexReader processed toplevel
+findAllDependencies (Right pkgDesc) indexReader processed toplevel = do
   let finalizeResult = finalizePackageDescription
                          []             -- TODO: configurable flags
                          (const True)
@@ -44,10 +42,13 @@ findAllDependencies (Right pkgDesc) indexReader processed = do
       logError $ "Could not finalize package description, missing dependencies: " <> show missingDeps
       return $ asProcessedPackages Set.empty
     Right (finalizedPkgDesc, _) -> do
-      let pkg = unPackageName (pkgName (package finalizedPkgDesc))
-      let pkgVer = Just $ showVersion (pkgVersion (package finalizedPkgDesc))
+      let pkg = Pkg.unPackageName (Pkg.pkgName (package finalizedPkgDesc))
+      let pkgVer = Just $ showVersion (Pkg.pkgVersion (package finalizedPkgDesc))
       debug $ "Processing " <> pkg <> "-" <> fromJust pkgVer
-      let processed' = addProcessedPackage (DependentPackage pkg pkgVer) processed
+      let processed' =
+            if toplevel
+            then asProcessedPackages Set.empty
+            else addProcessedPackage (DependentPackage pkg pkgVer) processed
       let newPkgs = findNewPackages processed' $ Set.fromList $ map packageFromDependency (buildDepends finalizedPkgDesc)
       childDeps <- indented $ recursiveFindDeps indexReader (toList newPkgs) processed'
       return $ mergeProcessedPackages [processed, newPkgs, childDeps]
@@ -84,7 +85,7 @@ recursiveFindDeps indexReader (pkg:pkgs) processed =
     proceedWithPackageVersion (ExplicitVersion ver) = do
       debug $ "Reading cabal for " <> pkgName <> " version " <> ver
       pkgDesc <- fetchCabal indexReader pkgName ver
-      childDeps <- findAllDependencies (Right pkgDesc) indexReader processed
+      childDeps <- findAllDependencies (Right pkgDesc) indexReader processed False
       let newProcessed = addProcessedPackage (DependentPackage pkgName (Just ver)) $ mergeProcessedPackages [processed, childDeps]
       recursiveFindDeps indexReader pkgs newProcessed
     proceedWithPackageVersion InstalledGlobal =
@@ -94,9 +95,9 @@ recursiveFindDeps _ [] processed = do
   debug $ "---"
   return processed
 
-packageFromDependency :: Dependency -> DependentPackage
-packageFromDependency (Dependency name versionRange) =
-  DependentPackage { dpName = unPackageName name
+packageFromDependency :: Pkg.Dependency -> DependentPackage
+packageFromDependency (Pkg.Dependency name versionRange) =
+  DependentPackage { dpName = Pkg.unPackageName name
                    , dpExplicitVersion = explicitVersionFromRange versionRange
                    }
 
