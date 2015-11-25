@@ -1,22 +1,19 @@
+{-# LANGUAGE RecordWildCards #-}
 module SnapshotVersions.Cabal
        ( findAllDependencies
        )
        where
 
 import           Control.Monad.IO.Class
-import qualified Data.ByteString.Char8                         as B8
-import qualified Data.ByteString.Lazy.Char8                    as BL
-import qualified Data.Map                                      as Map
+import qualified Data.ByteString.Char8                 as B8
+import qualified Data.ByteString.Lazy.Char8            as BL
+import qualified Data.Map                              as Map
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Set                                      as Set
+import qualified Data.Set                              as Set
 import           Data.Version
-import           Distribution.Compiler
-import qualified Distribution.Package                          as Pkg
-import           Distribution.PackageDescription
-import           Distribution.PackageDescription.Configuration
+import qualified Distribution.Package                  as Pkg
 import           Distribution.PackageDescription.Parse
-import           Distribution.System
 import           Distribution.Verbosity
 import           Distribution.Version
 import           Network.HTTP.Conduit
@@ -25,32 +22,24 @@ import           SnapshotVersions.PackageIndex
 import           SnapshotVersions.ProcessedPackages
 import           SnapshotVersions.Snapshot
 
-findAllDependencies :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => Either FilePath GenericPackageDescription -> IndexReader m -> ProcessedPackages -> Bool -> m (ProcessedPackages)
+findAllDependencies :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => Either FilePath LightweightPackageDescription -> IndexReader m -> ProcessedPackages -> Bool -> m ProcessedPackages
 findAllDependencies (Left p) indexReader processed toplevel = do
   pkgDesc <- liftIO $ readPackageDescription silent p
-  findAllDependencies (Right pkgDesc) indexReader processed toplevel
-findAllDependencies (Right pkgDesc) indexReader processed toplevel = do
-  let finalizeResult = finalizePackageDescription
-                         []             -- TODO: configurable flags
-                         (const True)
-                         buildPlatform  -- TODO: configurable platform
-                         (unknownCompilerInfo
-                          (CompilerId buildCompilerFlavor (Version [] [])) NoAbiTag)
-                         []
-                         pkgDesc
-  case finalizeResult of
-    Left missingDeps -> do
+  findAllDependencies (Right (toLightweightPackageDescription pkgDesc)) indexReader processed toplevel
+findAllDependencies (Right pkgDesc) indexReader processed toplevel =
+  case pkgDesc of
+    MissingDependencies missingDeps -> do
       logError $ "Could not finalize package description, missing dependencies: " <> show missingDeps
       return $ asProcessedPackages Set.empty
-    Right (finalizedPkgDesc, _) -> do
-      let pkg = Pkg.unPackageName (Pkg.pkgName (package finalizedPkgDesc))
-      let pkgVer = Just $ showVersion (Pkg.pkgVersion (package finalizedPkgDesc))
+    LightweightPackageDescription{..} -> do
+      let pkg = Pkg.unPackageName lpdName
+      let pkgVer = Just $ showVersion lpdVersion
       debug $ "Processing " <> pkg <> "-" <> fromJust pkgVer
       let processed' =
             if toplevel
             then asProcessedPackages Set.empty
             else addProcessedPackage (DependentPackage pkg pkgVer) processed
-      let newPkgs = findNewPackages processed' $ Set.fromList $ map packageFromDependency (buildDepends finalizedPkgDesc)
+      let newPkgs = findNewPackages processed' $ Set.fromList $ map packageFromDependency lpdDependencies
       childDeps <- indented $ recursiveFindDeps indexReader (toList newPkgs) processed'
       return $ mergeProcessedPackages [processed, newPkgs, childDeps]
 
@@ -106,7 +95,7 @@ packageFromDependency (Pkg.Dependency name versionRange) =
 explicitVersionFromRange :: VersionRange -> Maybe String
 explicitVersionFromRange vr = showVersion <$> isSpecificVersion vr
 
-fetchCabal :: (Monad m, MonadIO m, MonadOutput m) => (IndexReader m) -> String -> String -> m GenericPackageDescription
+fetchCabal :: (Monad m, MonadIO m, MonadOutput m) => (IndexReader m) -> String -> String -> m LightweightPackageDescription
 fetchCabal reader name ver = do
   pkgDesc <- reader name ver
   case pkgDesc of
