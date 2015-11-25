@@ -4,6 +4,7 @@ module SnapshotVersions.Cabal
        where
 
 import           Control.Monad.IO.Class
+import qualified Data.ByteString.Char8                         as B8
 import qualified Data.ByteString.Lazy.Char8                    as BL
 import qualified Data.Map                                      as Map
 import           Data.Maybe
@@ -53,40 +54,41 @@ findAllDependencies (Right pkgDesc) indexReader processed toplevel = do
       childDeps <- indented $ recursiveFindDeps indexReader (toList newPkgs) processed'
       return $ mergeProcessedPackages [processed, newPkgs, childDeps]
 
-recursiveFindDeps :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => (IndexReader m) -> [DependentPackage] -> ProcessedPackages -> m (ProcessedPackages)
+recursiveFindDeps :: (Monad m, MonadIO m, MonadOutput m, MonadVersionMap m) => IndexReader m -> [DependentPackage] -> ProcessedPackages -> m ProcessedPackages
 recursiveFindDeps indexReader (pkg:pkgs) processed =
-  if (isProcessed pkg processed && not (addsExplicitVersion pkg processed))
+  if isProcessed pkg processed && not (addsExplicitVersion pkg processed)
   then do
     debug $ pkgName <> " is already processed"
     recursiveFindDeps indexReader pkgs processed
   else do
     versionMap <- getVersionMap
-    if (Map.member pkgName (asMap versionMap))
+    if Map.member pkgNameB8 (asMap versionMap)
     then do
       -- The package is part of the snapshot. We use the snapshot version to read its package
       -- definition and traverse its dependencies
       debug $ pkgName <> " is specified in the snapshot"
-      proceedWithPackageVersion ((asMap versionMap) Map.! pkgName)
+      proceedWithPackageVersion (asMap versionMap Map.! pkgNameB8)
     else do
       -- The package is not part of the snapshot. If there is an explicit version constraint,
       -- we can traverse its dependencies, otherwise we just add it to the result set
       -- (which doesn't really do anything because in the final step we'll look up the result packages
       -- in the snapshot version map)
-      case (dpExplicitVersion pkg) of
+      case dpExplicitVersion pkg of
         Just pkgVer -> do
           debug $ pkgName <> " has explicit version " <> pkgVer
-          proceedWithPackageVersion (ExplicitVersion pkgVer)
+          proceedWithPackageVersion (ExplicitVersion (B8.pack pkgVer))
         Nothing -> do
           debug $ pkgName <> " has no explicit version"
           recursiveFindDeps indexReader pkgs (addProcessedPackage pkg processed)
 
   where
     pkgName = dpName pkg
+    pkgNameB8 = B8.pack pkgName
     proceedWithPackageVersion (ExplicitVersion ver) = do
-      debug $ "Reading cabal for " <> pkgName <> " version " <> ver
-      pkgDesc <- fetchCabal indexReader pkgName ver
+      debug $ "Reading cabal for " <> pkgName <> " version " <> B8.unpack ver
+      pkgDesc <- fetchCabal indexReader pkgName (B8.unpack ver)
       childDeps <- findAllDependencies (Right pkgDesc) indexReader processed False
-      let newProcessed = addProcessedPackage (DependentPackage pkgName (Just ver)) $ mergeProcessedPackages [processed, childDeps]
+      let newProcessed = addProcessedPackage (DependentPackage pkgName (Just (B8.unpack ver))) $ mergeProcessedPackages [processed, childDeps]
       recursiveFindDeps indexReader pkgs newProcessed
     proceedWithPackageVersion InstalledGlobal =
       recursiveFindDeps indexReader pkgs (addProcessedPackage pkg processed)

@@ -1,27 +1,51 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE RecordWildCards            #-}
 module SnapshotVersions.Snapshot where
 
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
+import           Data.ByteString            (ByteString)
+import qualified Data.ByteString            as B
 import qualified Data.ByteString.Char8      as B8
 import qualified Data.ByteString.Lazy.Char8 as BL
+import           Data.Char
 import qualified Data.Map                   as Map
 import           Data.Monoid
-import           Data.String.Utils
+import           Data.Serialize
 import           Distribution.ParseUtils
 import           Network.HTTP.Conduit
+import           SnapshotVersions.Cache
 import           SnapshotVersions.CmdLine
 import           SnapshotVersions.Output
 import           Text.PrettyPrint.HughesPJ  hiding ((<>))
 
-newtype VersionMap = VersionMap { asMap :: Map.Map String VersionInSnapshot }
+newtype VersionMap = VersionMap { asMap :: Map.Map ByteString VersionInSnapshot }
 
 newtype VersionMapReader m a =
   VersionMapReader { vmr :: ReaderT VersionMap m a }
   deriving (Applicative, Functor, Monad, MonadIO, MonadReader VersionMap, MonadTrans)
 
-data VersionInSnapshot = ExplicitVersion String | InstalledGlobal
+data VersionInSnapshot = ExplicitVersion ByteString
+                       | InstalledGlobal
+
+instance Serialize VersionInSnapshot where
+  put InstalledGlobal = putWord8 0
+  put (ExplicitVersion ver) = do
+    putWord8 1
+    put ver
+
+  get = do
+    tag <- getWord8
+    case tag of
+      0 -> return InstalledGlobal
+      1 -> ExplicitVersion <$> get
+      _ -> error "Invalid tag in cached version map"
+
+instance Serialize VersionMap where
+  put VersionMap{..} = put asMap
+  get = VersionMap <$> get
 
 class Monad m => MonadVersionMap m where
   getVersionMap :: m VersionMap
@@ -41,7 +65,7 @@ instance (MonadOutput m) => MonadOutput (VersionMapReader m) where
 
 withVersionMap :: forall m. (Monad m, MonadIO m, MonadOutput m) => SnapshotName -> VersionMapReader m () -> m ()
 withVersionMap name fn = do
-  versionMap' <- fetchVersionMap name
+  versionMap' <- cachedMaybe "versionmap" $ fetchVersionMap name
   case versionMap' of
     Nothing -> logError "Failed to fetch snapshot."
     Just versionMap -> runReaderT (vmr fn) versionMap
@@ -55,22 +79,27 @@ fetchVersionMap name = do
   let res = extractRawConstraints body
   case res of
     ParseOk _ rawConstraints -> do
-      let constraints = Map.fromList $ map (parseConstraint . strip) (split "," rawConstraints)
+      let constraints = Map.fromList $ map (parseConstraint . strip) (B8.split ',' rawConstraints)
       return $ Just $ VersionMap constraints
     _ -> return Nothing
 
-parseConstraint :: String -> (String, VersionInSnapshot)
+parseConstraint :: ByteString -> (ByteString, VersionInSnapshot)
 parseConstraint entry =
-  let [name, constr] = words entry
+  let [name, constr] = B8.words entry
   in if constr == "installed"
      then (name, InstalledGlobal)
-     else (name, ExplicitVersion $ drop 2 constr)
+     else (name, ExplicitVersion $ B.drop 2 constr)
 
-extractRawConstraints :: BL.ByteString -> ParseResult String
+extractRawConstraints :: BL.ByteString -> ParseResult ByteString
 extractRawConstraints src =
     let desc = [ FieldDescr { fieldName = "constraints"
-                          , fieldGet = const $ text ""
-                          , fieldSet = \_ s _ -> pure s
-                          }
-             ]
-    in parseFields desc "" (B8.unpack $ BL.toStrict src)
+                            , fieldGet = const $ text ""
+                            , fieldSet = \_ s _ -> pure s
+                            }
+               ]
+    in B8.pack <$> parseFields desc "" (B8.unpack (BL.toStrict src))
+
+strip :: ByteString -> ByteString
+strip = B.reverse . lstrip . B.reverse . lstrip
+  where
+    lstrip = B8.dropWhile isSpace

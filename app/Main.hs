@@ -3,6 +3,7 @@
 module Main where
 
 import           Control.Monad
+import qualified Data.ByteString.Char8              as B8
 import qualified Data.Map                           as Map
 import           Data.Maybe
 import           Data.Monoid
@@ -17,9 +18,9 @@ import           SnapshotVersions.Snapshot
 dumpResults :: ProcessedPackages -> VersionMapReader (OutputMonad IO) ()
 dumpResults deps = getVersionMap >>= \versionMap -> do
   results <- forM (toList deps) $ \(DependentPackage pkg explicitVer) ->
-    if (Map.member pkg (asMap versionMap))
-    then case ((asMap versionMap) Map.! pkg) of
-      ExplicitVersion ver -> return $ Just (pkg, ver)
+    if Map.member (B8.pack pkg) (asMap versionMap)
+    then case (asMap versionMap) Map.! (B8.pack pkg) of
+      ExplicitVersion ver -> return $ Just (pkg, B8.unpack ver)
       _ -> return Nothing
     else case explicitVer  of
       Nothing -> do
