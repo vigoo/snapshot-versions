@@ -65,7 +65,7 @@ instance (MonadOutput m) => MonadOutput (VersionMapReader m) where
 
 withVersionMap :: forall m. (Monad m, MonadIO m, MonadOutput m) => SnapshotName -> VersionMapReader m () -> m ()
 withVersionMap name fn = do
-  versionMap' <- cachedMaybe "versionmap" $ fetchVersionMap name
+  versionMap' <- cachedMaybe ("versionmap-" <> name) $ fetchVersionMap name
   case versionMap' of
     Nothing -> logError "Failed to fetch snapshot."
     Just versionMap -> runReaderT (vmr fn) versionMap
