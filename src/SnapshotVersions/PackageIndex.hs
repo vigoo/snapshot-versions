@@ -25,6 +25,7 @@ import           GHC.Generics
 import           SnapshotVersions.Cache
 import           SnapshotVersions.Output
 import           System.Directory
+import           System.Environment
 import           System.FilePath
 
 data LightweightPackageDescription
@@ -50,7 +51,15 @@ instance Serialize Dependency
 instance Serialize Version
 
 indexPath :: IO FilePath
-indexPath = getHomeDirectory >>= \dir -> return (dir </> ".stack" </> "indices" </> "Hackage" </>"00-index.tar")
+indexPath = do
+    env <- getEnvironment
+    stackRoot <- case lookup "STACK_ROOT" env of
+                    Nothing -> do
+                        home <- getHomeDirectory
+                        return (home </> ".stack")
+                    Just path ->
+                        return path
+    return (stackRoot </> "indices" </> "Hackage" </> "00-index.tar")
 
 createIndexReader :: (Monad m, MonadIO m, MonadOutput m) => m (IndexReader m)
 createIndexReader = do
