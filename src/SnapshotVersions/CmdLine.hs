@@ -1,7 +1,6 @@
 module SnapshotVersions.CmdLine where
 
 import           Control.Applicative
-import           Data.Monoid
 import           Options.Applicative
 
 type SnapshotName = String

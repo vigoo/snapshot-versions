@@ -43,6 +43,8 @@ instance Serialize LightweightPackageDescription
 
 type IndexReader m = String -> String -> m (Maybe LightweightPackageDescription)
 
+deriving instance Generic Version
+
 instance Serialize PackageName
 instance Serialize VersionRange
 instance Serialize Dependency
@@ -114,7 +116,7 @@ createIndexReaderFor tarPath = do
 tryParsePackageDescription :: String -> Maybe LightweightPackageDescription
 tryParsePackageDescription src = case parsePackageDescription src of
   ParseOk _ d -> Just $ toLightweightPackageDescription d
-  _           -> Nothing
+  _ -> Nothing
 
 toLightweightPackageDescription :: GenericPackageDescription -> LightweightPackageDescription
 toLightweightPackageDescription pkgDesc =
