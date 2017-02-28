@@ -1,15 +1,17 @@
 sudo: false
-language: c
 
 before_install:
-  - wget -qO- https://get.haskellstack.org/ | sh
+  # Download and unpack the stack executable
+  - mkdir -p ~/.local/bin
+  - export PATH=$HOME/.local/bin:$PATH
+  - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
   
 install:
-  - stack --no-terminal update
-  - stack --no-terminal setup
+  - travis_wait stack --no-terminal update
+  - travis_wait stack --no-terminal setup
 
 script:
-  - stack --no-terminal build
+  - travis_wait stack --no-terminal build
 
 cache:
   directories:
